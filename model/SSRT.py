@@ -10,6 +10,24 @@ import logging
 from model.ViT import Block, PatchEmbed, VisionTransformer, vit_model
 from model.grl import WarmStartGradientReverseLayer
 
+#MetaImputer
+class MetaImputer(nn.Module):
+    def __init__(self, num_input_channels,num3,num5):
+        super().__init__()
+        self.num_input_channels = num_input_channels
+        self.num3 = num3
+        self.num5 = num5
+        self.conv3 = nn.Conv2d(num_input_channels, self.num3, kernel_size=(3,3), padding= 1,padding_mode='reflect')
+        self.conv5 = nn.Conv2d(num_input_channels, self.num5, kernel_size=(5,5), padding= 2,padding_mode='reflect')
+        self.conv1 = nn.Conv2d(self.num_input_channels + self.num3 + self.num5, num_input_channels, kernel_size=(1,1))
+
+    def forward(self, input):
+        conv3_out = self.conv3.forward(input)
+        conv5_out = self.conv5.forward(input)
+
+        filtered_output = torch.cat((input,conv3_out,conv5_out),1)
+        return self.conv1.forward(filtered_output)
+
 class VT(VisionTransformer):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=True,
@@ -101,6 +119,7 @@ class SSRTNet(nn.Module):
     def __init__(self, base_net='vit_base_patch16_224', use_bottleneck=True, bottleneck_dim=1024, width=1024, class_num=31, args=None):
         super(SSRTNet, self).__init__()
 
+        self.meta_imputer = MetaImputer(3, 5, 7)
         self.base_network = vit_model[base_net](pretrained=True, args=args, VisionTransformerModule=VT)
         self.use_bottleneck = use_bottleneck
         self.grl = WarmStartGradientReverseLayer(alpha=1.0, lo=0.0, hi=0.1, max_iters=1000, auto_step=True)
@@ -134,6 +153,7 @@ class SSRTNet(nn.Module):
 
 
     def forward(self, inputs):
+        inputs = self.meta_imputer.forward(inputs)
         features = self.base_network.forward_features(inputs)
         if self.use_bottleneck:
             features = self.bottleneck(features)
